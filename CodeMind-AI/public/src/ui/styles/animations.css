@@ -1,0 +1,31 @@
+/* Placeholder for animation styles */
+
+/* Example: Fade-in animation */
+.fade-in {
+  animation: fadeIn var(--transition-normal) forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Slide-in from right (for settings panel, assuming RTL means it slides from left) */
+/* If your layout is strictly LTR and settings panel comes from right, this is fine */
+/* If settings panel should come from left in RTL, adjust animations */
+
+.slide-in-left { /* Assuming panel slides from left in RTL */
+  animation: slideInLeft var(--transition-normal) forwards;
+}
+@keyframes slideInLeft {
+    from { transform: translateX(-100%); } /* Adjust based on panel width or use left property */
+    to { transform: translateX(0); }
+}
+
+.slide-out-right { /* Assuming panel slides to left in RTL */
+    animation: slideOutRight var(--transition-normal) forwards;
+}
+@keyframes slideOutRight {
+    from { transform: translateX(0); }
+    to { transform: translateX(-100%); } /* Adjust based on panel width or use left property */
+}

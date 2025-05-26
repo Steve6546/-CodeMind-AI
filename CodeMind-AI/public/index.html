@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="وكيل ذكاء اصطناعي متقدم للتصفح والبرمجة">
+    <meta name="keywords" content="AI, Agent, Programming, Automation">
+    <meta name="author" content="CodeMind AI">
+    
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#1a1a2e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    
+    <!-- Open Graph Meta Tags -->
+    <meta property="og:title" content="CodeMind AI - الوكيل الذكي">
+    <meta property="og:description" content="وكيل ذكاء اصطناعي متقدم للتصفح والبرمجة">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="/assets/images/og-image.png">
+    
+    <title>🤖 CodeMind AI - الوكيل الذكي</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/assets/icons/favicon.svg">
+    <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
+    
+    <!-- Manifest -->
+    <link rel="manifest" href="/manifest.json">
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="/src/ui/styles/main.css">
+    <link rel="stylesheet" href="/src/ui/styles/components.css">
+    <link rel="stylesheet" href="/src/ui/styles/animations.css">
+    
+    <!-- Preload Critical Resources -->
+    <link rel="preload" href="/src/main.js" as="script">
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="loading-screen">
+        <div class="loading-content">
+            <div class="loading-logo">🤖</div>
+            <div class="loading-text">CodeMind AI</div>
+            <div class="loading-spinner"></div>
+            <div class="loading-status">جاري التحميل...</div>
+        </div>
+    </div>
+
+    <!-- Main Application -->
+    <div id="app" class="app-container" style="display: none;">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-content">
+                <div class="logo-section">
+                    <div class="app-logo">🤖</div>
+                    <h1 class="app-title">CodeMind AI</h1>
+                    <span class="app-subtitle">الوكيل الذكي</span>
+                </div>
+                
+                <div class="header-controls">
+                    <button id="settings-btn" class="icon-btn" title="الإعدادات">
+                        <span class="icon">⚙️</span>
+                    </button>
+                    <button id="theme-toggle" class="icon-btn" title="تغيير الثيم">
+                        <span class="icon">🌙</span>
+                    </button>
+                    <div id="status-indicator" class="status-indicator">
+                        <div class="status-dot offline"></div>
+                        <span class="status-text">غير متصل</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="app-main">
+            <!-- Chat Interface -->
+            <section class="chat-section">
+                <div id="chat-container" class="chat-container">
+                    <div id="chat-messages" class="chat-messages">
+                        <!-- Welcome Message -->
+                        <div class="message agent-message welcome-message">
+                            <div class="message-avatar">🤖</div>
+                            <div class="message-content">
+                                <div class="message-text">
+                                    <h3>مرحباً بك في CodeMind AI! 👋</h3>
+                                    <p>أنا وكيل ذكاء اصطناعي متقدم يمكنني مساعدتك في:</p>
+                                    <ul>
+                                        <li>🔍 البحث في الإنترنت وتحليل المواقع</li>
+                                        <li>💻 إنشاء مواقع وتطبيقات ويب</li>
+                                        <li>🛠️ كتابة وتحليل الكود البرمجي</li>
+                                        <li>📊 جمع وتحليل البيانات</li>
+                                    </ul>
+                                    <p>لبدء الاستخدام، يرجى إدخال مفتاح Gemini API في الإعدادات.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Input Section -->
+                <div class="input-section">
+                    <div class="input-container">
+                        <textarea 
+                            id="user-input" 
+                            class="user-input" 
+                            placeholder="اكتب أمرك هنا... (مثال: اكتب لي موقع بسيط)"
+                            rows="1"
+                            disabled
+                        ></textarea>
+                        <button id="send-btn" class="send-btn" disabled>
+                            <span class="icon">📤</span>
+                        </button>
+                    </div>
+                    <div class="input-hints">
+                        <span class="hint-text">💡 نصيحة: اكتب أوامر واضحة ومحددة للحصول على أفضل النتائج</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Command Terminal -->
+            <section class="terminal-section">
+                <div class="terminal-header">
+                    <div class="terminal-title">
+                        <span class="icon">💻</span>
+                        سطر الأوامر
+                    </div>
+                    <div class="terminal-controls">
+                        <button id="clear-terminal" class="terminal-btn">مسح</button>
+                        <button id="toggle-terminal" class="terminal-btn">إخفاء</button>
+                    </div>
+                </div>
+                <div id="command-terminal" class="command-terminal">
+                    <div class="terminal-content">
+                        <div class="terminal-line">
+                            <span class="terminal-prompt">CodeMind AI $</span>
+                            <span class="terminal-text">نظام جاهز للاستخدام</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Settings Panel -->
+        <div id="settings-panel" class="settings-panel hidden">
+            <div class="settings-content">
+                <div class="settings-header">
+                    <h2>⚙️ الإعدادات</h2>
+                    <button id="close-settings" class="close-btn">✕</button>
+                </div>
+                
+                <div class="settings-body">
+                    <!-- API Configuration -->
+                    <div class="setting-group">
+                        <h3>🔑 إعدادات API</h3>
+                        <div class="setting-item">
+                            <label for="api-key">مفتاح Gemini API:</label>
+                            <div class="input-group">
+                                <input 
+                                    type="password" 
+                                    id="api-key" 
+                                    placeholder="أدخل مفتاح API هنا..."
+                                    class="setting-input"
+                                >
+                                <button id="toggle-api-key" class="toggle-btn">👁️</button>
+                            </div>
+                            <small class="setting-help">
+                                احصل على مفتاح مجاني من 
+                                <a href="https://makersuite.google.com/app/apikey" target="_blank">Google AI Studio</a>
+                            </small>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <label for="ai-model">النموذج:</label>
+                            <select id="ai-model" class="setting-select">
+                                <option value="gemini-1.5-pro">Gemini 1.5 Pro (أفضل جودة)</option>
+                                <option value="gemini-1.5-flash" selected>Gemini 1.5 Flash (أسرع)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- General Settings -->
+                    <div class="setting-group">
+                        <h3>🎛️ الإعدادات العامة</h3>
+                        <div class="setting-item">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="auto-scroll" checked>
+                                <span class="checkmark"></span>
+                                التمرير التلقائي للرسائل
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="sound-effects">
+                                <span class="checkmark"></span>
+                                تأثيرات صوتية
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="save-history" checked>
+                                <span class="checkmark"></span>
+                                حفظ تاريخ المحادثات
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Advanced Settings -->
+                    <div class="setting-group">
+                        <h3>🔧 إعدادات متقدمة</h3>
+                        <div class="setting-item">
+                            <label for="max-tokens">الحد الأقصى للرموز:</label>
+                            <input 
+                                type="range" 
+                                id="max-tokens" 
+                                min="100" 
+                                max="8192" 
+                                value="2048"
+                                class="range-input"
+                            >
+                            <span class="range-value">2048</span>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <label for="temperature">مستوى الإبداع:</label>
+                            <input 
+                                type="range" 
+                                id="temperature" 
+                                min="0" 
+                                max="2" 
+                                step="0.1" 
+                                value="0.7"
+                                class="range-input"
+                            >
+                            <span class="range-value">0.7</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="settings-footer">
+                    <button id="save-settings" class="primary-btn">💾 حفظ الإعدادات</button>
+                    <button id="reset-settings" class="secondary-btn">🔄 إعادة تعيين</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Overlay -->
+        <div id="overlay" class="overlay hidden"></div>
+    </div>
+
+    <!-- Error Boundary -->
+    <div id="error-boundary" class="error-boundary hidden">
+        <div class="error-content">
+            <div class="error-icon">⚠️</div>
+            <h2>حدث خطأ غير متوقع</h2>
+            <p id="error-message">نعتذر، حدث خطأ في التطبيق. يرجى إعادة تحميل الصفحة.</p>
+            <button id="reload-app" class="primary-btn">🔄 إعادة تحميل</button>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script type="module" src="/src/main.js"></script>
+    
+    <!-- Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(registration => {
+                        console.log('SW registered: ', registration);
+                    })
+                    .catch(registrationError => {
+                        console.log('SW registration failed: ', registrationError);
+                    });
+            });
+        }
+    </script>
+</body>
+</html>
