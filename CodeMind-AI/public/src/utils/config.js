@@ -69,6 +69,11 @@ export const CONFIG = {
     DEBUG: process.env.NODE_ENV === 'development',
     MOCK_API: false, // Set to true to simulate API calls
     VERBOSE_LOGGING: true // Enable more detailed logs in dev
+  },
+
+  // New section for Agent Services
+  AGENT_SERVICES: {
+    PROXY_URL: 'http://localhost:3001/fetch-url' // Default, will be confirmed/overridden by worker
   }
 };
 

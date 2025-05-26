@@ -39,6 +39,9 @@
     
     <!-- Preload Critical Resources -->
     <link rel="preload" href="/src/main.js" as="script">
+
+    <!-- JSZip Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
     <!-- Loading Screen -->
@@ -105,6 +108,11 @@
                 
                 <!-- Input Section -->
                 <div class="input-section">
+                    <div class="file-input-container">
+                        <label for="zip-file-input" class="file-input-label button-like">📁 Upload ZIP</label>
+                        <input type="file" id="zip-file-input" accept=".zip" style="display: none;">
+                        <span id="zip-file-name" class="file-name-display">No file selected.</span>
+                    </div>
                     <div class="input-container">
                         <textarea 
                             id="user-input" 

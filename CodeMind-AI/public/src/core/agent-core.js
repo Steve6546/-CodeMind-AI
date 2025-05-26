@@ -9,6 +9,7 @@
     // import { Logger } from '../utils/logger.js'; // Assuming Logger is used, ensure it's correctly imported if so
     // import { Storage } from '../utils/storage.js'; // Assuming Storage is used
     import { CONFIG } from '../utils/config.js';
+    import ZipProcessor from '../utils/zip-processor.js';
 
     // Placeholder for Logger and Storage if not fully implemented or to avoid errors if they are basic
     const Logger = console; // Simple placeholder
@@ -26,7 +27,9 @@
 
             // Initialize core components
             this.apiManager = new APIManager();
-            this.commandProcessor = new CommandProcessor(this.apiManager); // Pass apiManager
+            this.zipProcessor = new ZipProcessor();
+            this.currentZipFile = null; // To store info about the loaded zip
+            this.commandProcessor = new CommandProcessor(this.apiManager, this); // New: passing 'this' (AgentCore instance)
             this.errorHandler = new ErrorHandler();
             this.logger = Logger; // Use placeholder Logger
             this.storage = new Storage(); // Use placeholder Storage
@@ -40,6 +43,32 @@
 
             this.logger.info('🤖 Agent Core initialized');
             this.startTime = Date.now(); // Added for getStatus() uptime
+        }
+
+        async handleZipFile(file) {
+            this.logger.info(`AgentCore received ZIP file: ${file.name}`);
+            this.emit('agentNotification', { message: `Processing ZIP file: ${file.name}...`, type: 'info' }); // For UIManager to show
+            try {
+                const result = await this.zipProcessor.loadZip(file);
+                this.currentZipFile = { name: file.name, processor: this.zipProcessor }; // Store reference
+                this.logger.info(`Successfully processed ZIP file: ${file.name}. Files found: ${result.fileCount}`);
+                this.emit('agentNotification', { message: `Successfully processed ${file.name}. Found ${result.fileCount} files. You can now ask questions about its content.`, type: 'success' });
+
+                // Add to context or make it available for commands
+                this.context.set('last_uploaded_zip', {
+                    name: file.name,
+                    fileCount: result.fileCount,
+                    timestamp: new Date()
+                });
+                // Optionally, list files immediately or wait for user command
+                // const fileList = this.zipProcessor.listFiles();
+                // this.emit('message', { type: 'agent', content: `Files in ${file.name}:\n${fileList.map(f => `- ${f.name} (${f.size} bytes)`).join('\n')}` });
+
+            } catch (error) {
+                this.logger.error('AgentCore: Error processing ZIP file:', error);
+                this.currentZipFile = null;
+                this.emit('agentNotification', { message: `Error processing ZIP file ${file.name}: ${error.message}`, type: 'error' });
+            }
         }
 
         /**
@@ -350,6 +379,8 @@
                         return this.formatAnalysisResult(result);
                     case 'general_query':
                         return this.formatGeneralResult(result);
+                    case 'zip_operation': // Added for zip operations
+                        return this.formatZipOperationResult(result);
                     default:
                         return result;
                 }
@@ -398,6 +429,24 @@
             };
         }
 
+        formatZipOperationResult(result) {
+            // Assuming 'result' is the 'data' part from executeZipOperation
+            if (result.error) {
+                return { type: 'error', content: result.error };
+            }
+            if (result.fileList) { // For list_files
+                return { type: 'text', content: `${result.message}\n${result.fileList}` };
+            }
+            if (result.content) { // For read_file
+                return { type: 'code', language: 'plaintext', content: result.content, explanation: `Content of ${result.fileName}` };
+            }
+            if (result.analysis_summary) { // For analyze_content
+                 return { type: 'text', content: `ZIP Analysis Summary:\n${result.analysis_summary}\nFiles checked: ${result.files_checked.join(', ')}`};
+            }
+            return { type: 'text', content: JSON.stringify(result, null, 2) }; // Fallback for other zip ops
+        }
+
+
         /**
          * اختبار اتصال API
          */
@@ -436,6 +485,7 @@
     • 🔍 البحث وتحليل المعلومات
     • 📊 معالجة وتحليل البيانات
     • 🛠️ كتابة وتحليل الكود البرمجي
+    • 📁 تحليل ملفات ZIP
 
     ما الذي تريد أن نعمل عليه اليوم؟`,
                 timestamp: new Date()
@@ -455,6 +505,8 @@
                 'text_processing',
                 'image_analysis',
                 'file_processing',
+                'zip_file_processing', // Added
+                'web_browsing', // Added
                 'api_integration',
                 'automation'
             ];
@@ -464,6 +516,36 @@
             });
 
             this.logger.info(`📋 Registered ${capabilities.length} capabilities`);
+        }
+
+        // In AgentCore class
+        async fetchWebsiteContent(url) {
+            this.logger.info(`AgentCore attempting to fetch content for URL: ${url}`);
+            // IMPORTANT: The PROXY_URL will be provided by the worker in a subsequent step.
+            // For now, we'll use a placeholder.
+            const PROXY_URL = this.settings?.PROXY_URL || CONFIG.AGENT_SERVICES?.PROXY_URL || 'http://localhost:3001/fetch-url'; // Get from settings or default
+
+            if (!PROXY_URL || (PROXY_URL === 'http://localhost:3001/fetch-url' && !this.settings?.PROXY_URL && !CONFIG.AGENT_SERVICES?.PROXY_URL)) {
+                this.logger.warn('Fetch Proxy URL not configured in settings or CONFIG. Using default placeholder which might not work.');
+            }
+            
+            try {
+                // The agent's fetch call goes to its own backend proxy, not directly to the target URL from the browser.
+                const response = await fetch(`${PROXY_URL}?url=${encodeURIComponent(url)}`);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Proxy request failed with status ${response.status}: ${errorText}`);
+                }
+                const data = await response.json(); // Expecting JSON: { success: true/false, textContent: "...", htmlContent: "...", error: "..." }
+                if (!data.success) {
+                    throw new Error(data.error || 'Proxy returned failure but no specific error message.');
+                }
+                this.logger.info(`Successfully fetched content via proxy for ${url}. Text length: ${data.textContent?.length}`);
+                return { success: true, textContent: data.textContent, htmlContent: data.htmlContent };
+            } catch (error) {
+                this.logger.error(`Error fetching website content for ${url} via proxy:`, error);
+                return { success: false, error: error.message, textContent: null, htmlContent: null };
+            }
         }
 
         hasCapability(capability) {
@@ -482,17 +564,25 @@
 
         async loadSettings() {
             try {
-                const settings = await this.storage.get(CONFIG.STORAGE.KEYS.SETTINGS);
-                if (settings) {
-                    this.settings = { ...CONFIG, ...settings }; // Merging with default CONFIG
+                const savedSettings = await this.storage.get(CONFIG.STORAGE.KEYS.SETTINGS);
+                if (savedSettings) {
+                    this.settings = { ...CONFIG, ...savedSettings }; // Merging with default CONFIG
+                     if (savedSettings.PROXY_URL) this.settings.PROXY_URL = savedSettings.PROXY_URL; // Explicitly ensure PROXY_URL from storage is kept
                     this.logger.info('📥 Settings loaded from storage');
                 } else {
                     this.settings = { ...CONFIG }; // Use a copy of CONFIG
                     this.logger.info('📋 Using default settings');
                 }
+                 // Ensure AGENT_SERVICES.PROXY_URL from CONFIG is used if not in savedSettings
+                if (!this.settings.PROXY_URL && CONFIG.AGENT_SERVICES?.PROXY_URL) {
+                   this.settings.PROXY_URL = CONFIG.AGENT_SERVICES.PROXY_URL;
+                }
             } catch (error) {
                 this.logger.error('Error loading settings:', error);
                 this.settings = { ...CONFIG }; // Fallback to a copy of default CONFIG
+                 if (!this.settings.PROXY_URL && CONFIG.AGENT_SERVICES?.PROXY_URL) { // Ensure default even on error
+                   this.settings.PROXY_URL = CONFIG.AGENT_SERVICES.PROXY_URL;
+                }
             }
         }
 
@@ -530,6 +620,14 @@
         setupEventListeners() {
             // this.apiManager.on('error', this.handleError); // Assuming APIManager has an 'on' method
             // this.commandProcessor.on('error', this.handleError); // Assuming CommandProcessor has an 'on' method
+
+            // In AgentCore's setupEventListeners
+            window.addEventListener('ui:zipFileUploaded', async (event) => {
+                if (event.detail && event.detail.file) {
+                    await this.handleZipFile(event.detail.file);
+                }
+            });
+
 
             setInterval(() => {
                 this.saveContext();
@@ -578,7 +676,8 @@
                 currentTask: this.currentTask,
                 queueLength: this.taskQueue.length,
                 capabilities: Array.from(this.capabilities),
-                uptime: (Date.now() - this.startTime) / 1000 // uptime in seconds
+                uptime: (Date.now() - this.startTime) / 1000, // uptime in seconds
+                currentZipFile: this.currentZipFile ? this.currentZipFile.name : null
             };
         }
 

@@ -45,6 +45,9 @@
         initializeComponents() {
             const ids = ['chat-container', 'chat-messages', 'user-input', 'send-btn', 'command-terminal', 'clear-terminal', 'toggle-terminal', 'settings-btn', 'settings-panel', 'close-settings', 'api-key', 'ai-model', 'save-settings', 'status-indicator', 'theme-toggle', 'overlay'];
             ids.forEach(id => this.components.set(id, document.getElementById(id)));
+            // Inside initializeComponents method:
+            this.components.set('zipFileInput', document.getElementById('zip-file-input'));
+            this.components.set('zipFileNameDisplay', document.getElementById('zip-file-name'));
             this.logger.info('🧩 UI components initialized');
         }
 
@@ -52,6 +55,8 @@
             this.addEventListenerSafe('sendBtn', 'click', () => this.handleSendMessage());
             this.addEventListenerSafe('userInput', 'keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.handleSendMessage(); } });
             this.addEventListenerSafe('userInput', 'input', () => this.handleInputChange());
+            // Inside setupEventListeners method:
+            this.addEventListenerSafe('zipFileInput', 'change', (e) => this.handleZipFileSelected(e));
             this.addEventListenerSafe('settingsBtn', 'click', () => this.toggleSettings());
             this.addEventListenerSafe('closeSettings', 'click', () => this.closeSettings());
             this.addEventListenerSafe('saveSettings', 'click', () => this.saveSettings());
@@ -65,6 +70,35 @@
             window.addEventListener('beforeunload', () => this.cleanup());
             window.addEventListener('resize', () => this.handleResize());
             this.logger.info('👂 Event listeners setup completed');
+        }
+
+        async handleZipFileSelected(event) {
+            const fileInput = event.target;
+            if (fileInput.files && fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                if (file.type === 'application/zip' || file.name.endsWith('.zip')) {
+                    this.logger.info(`ZIP file selected: ${file.name}, size: ${file.size} bytes`);
+                    const fileNameDisplay = this.components.get('zipFileNameDisplay');
+                    if (fileNameDisplay) {
+                        fileNameDisplay.textContent = file.name;
+                    }
+                    this.showNotification(`Selected file: ${file.name}`, 'info');
+
+                    // Emit an event with the file object to be handled by AgentCore
+                    this.emit('zipFileUploaded', { file });
+
+                    // Optionally, clear the file input for the next selection,
+                    // though this can sometimes be tricky with file inputs.
+                    // fileInput.value = ''; // This might not work consistently or might have side effects.
+                } else {
+                    this.showNotification('Invalid file type. Please select a ZIP file.', 'error');
+                    const fileNameDisplay = this.components.get('zipFileNameDisplay');
+                    if (fileNameDisplay) {
+                        fileNameDisplay.textContent = 'No file selected.';
+                    }
+                    fileInput.value = ''; // Clear the invalid file
+                }
+            }
         }
 
         addEventListenerSafe(elementId, event, handler) {
@@ -87,7 +121,11 @@
                 'command:stepStarted': (e) => this.handleStepStarted(e.detail),
                 'command:stepCompleted': (e) => this.handleStepCompleted(e.detail),
                 'command:stepFailed': (e) => this.handleStepFailed(e.detail),
-                'agent:message': (e) => this.addMessage('agent', e.detail.content)
+                'agent:message': (e) => this.addMessage('agent', e.detail.content),
+                'agent:agentNotification': (e) => { // Added
+                    const { message, type } = e.detail;
+                    this.showNotification(message, type);
+                }
             };
             for (const [eventName, handler] of Object.entries(agentEvents)) {
                 window.addEventListener(eventName, handler);

@@ -11,9 +11,10 @@
 
 
     export class CommandProcessor {
-        constructor(apiManager) { // Added apiManager from previous agent-core update
+        constructor(apiManager, agentCoreInstance) { // Modified
             this.logger = Logger; // Use placeholder Logger
             this.apiManager = apiManager; // Store apiManager
+            this.agentCore = agentCoreInstance; // Store agentCore instance
             this.commandHistory = [];
             this.commandPatterns = new Map();
             this.executionStrategies = new Map();
@@ -299,6 +300,13 @@
                     case 'file_operation': result = await this.executeFileOperation(step, context); break;
                     case 'api_call': result = await this.executeApiCall(step, context); break;
                     case 'text_processing': result = await this.executeTextProcessing(step, context); break;
+                    case 'zip_operation':
+                        result = await this.executeZipOperation(step, context);
+                        break;
+                    // Inside executeStep switch statement
+                    case 'web_operation':
+                        result = await this.executeWebOperation(step, context);
+                        break;
                     default: throw new Error(`Unknown step type: ${step.type}`);
                 }
                 const endTime = performance.now();
@@ -407,39 +415,197 @@
             }
         }
 
+        // Modify executeTextProcessing in CommandProcessor
         async executeTextProcessing(step, context) {
             try {
-                const { text, operation } = step.parameters;
+                const { operation, targetLanguage } = step.parameters;
+                let text = step.parameters.text;
+
+                // If sourceTextContextKey is provided, use text from context
+                if (step.parameters.sourceTextContextKey && context[step.parameters.sourceTextContextKey]) {
+                    text = context[step.parameters.sourceTextContextKey];
+                    this.logger.info(`Using text from context key '${step.parameters.sourceTextContextKey}' for ${operation}. Length: ${text?.length}`);
+                }
+
+                if (!text) {
+                    throw new Error(`No text provided or found in context for operation: ${operation}`);
+                }
+
                 let result;
-                 // These would ideally use the AI via apiManager
-                const promptBase = `Perform text operation "${operation}" on the following text: "${text}". `;
+                const promptBase = `Perform text operation "${operation}" on the following text: "${text.substring(0, 3000)}... (text might be truncated for AI prompt)". `; // Limit text length for prompt
                 let specificPrompt = promptBase;
 
                 switch (operation) {
                     case 'summarize': specificPrompt += "Provide a concise summary."; break;
-                    case 'translate': specificPrompt += `Translate to ${step.parameters.targetLanguage || 'English'}.`; break;
+                    case 'translate': specificPrompt += `Translate to ${targetLanguage || 'English'}.`; break;
                     case 'analyze_sentiment': specificPrompt += "Analyze sentiment (positive, negative, neutral)."; break;
                     case 'extract_keywords': specificPrompt += "Extract key terms."; break;
+                    // Handle 'analyze_requirements' if it's meant to be an LLM call
+                    case 'analyze_requirements': specificPrompt = `Analyze the following project requirements and extract key features, target audience, and main goals: "${text.substring(0,3000)}"`; break;
+                    // Handle 'summarize_search_results'
+                    case 'summarize_search_results': specificPrompt = `Summarize the key information from these search results: "${text.substring(0,3000)}"`; break;
                     default: throw new Error(`Unknown text operation: ${operation}`);
                 }
                 const aiResponse = await this.apiManager.sendRequest({ message: specificPrompt });
-                result = aiResponse.content; // Assuming AI returns processed text directly
+                result = aiResponse.content;
 
                 return {
-                    data: { result }, // Ensure data is an object
-                    context: { lastTextOperation: operation, processedText: text.substring(0, 100) + '...' }
+                    data: { result },
+                    context: { lastTextOperation: operation, processedTextSnippet: text.substring(0, 100) + '...' }
                 };
             } catch (error) {
-                throw new Error(`Text processing failed: ${error.message}`);
+                this.logger.error(`Text processing failed for operation "${step.parameters.operation}":`, error);
+                // Re-throw or return error structure
+                return { data: { error: `Text processing (${step.parameters.operation}) failed: ${error.message}` } };
             }
         }
 
+        async executeZipOperation(step, context) {
+            if (!this.agentCore || !this.agentCore.zipProcessor || !this.agentCore.currentZipFile) {
+                const errorMsg = "No ZIP file is currently loaded or ZipProcessor is not available.";
+                this.agentCore?.emit('agentNotification', { message: errorMsg, type: 'error' }); // Emit notification even if agentCore parts are missing
+                return { data: { error: errorMsg } };
+            }
+    
+            const zipProcessor = this.agentCore.zipProcessor;
+            const { operation, fileName } = step.parameters;
+            let operationResult;
+            const currentZipName = this.agentCore.currentZipFile.name;
+    
+            try {
+                switch (operation) {
+                    case 'list_files':
+                        this.agentCore.emit('agentNotification', { message: `Listing files in ${currentZipName}...`, type: 'info' });
+                        const files = zipProcessor.listFiles();
+                        operationResult = {
+                            message: `Files in ${currentZipName}:`,
+                            fileList: files.map(f => `${f.name} (${f.size} bytes)`).join('\n')
+                        };
+                        // ***** ADD THIS LINE *****
+                        this.agentCore.emit('agentNotification', { message: `Found ${files.length} files in ${currentZipName}.`, type: 'success' });
+                        break;
+                    case 'read_file':
+                        if (!fileName) {
+                            const errorMsg = "File name not specified for reading from ZIP.";
+                            this.agentCore.emit('agentNotification', { message: errorMsg, type: 'error' });
+                            throw new Error(errorMsg);
+                        }
+                        this.agentCore.emit('agentNotification', { message: `Reading file ${fileName} from ${currentZipName}...`, type: 'info' });
+                        const content = await zipProcessor.getFileContent(fileName);
+    
+                        if (content === null) {
+                            const errorMsg = `File '${fileName}' not found in ${currentZipName}.`;
+                            this.agentCore.emit('agentNotification', { message: errorMsg, type: 'error' });
+                            operationResult = { error: errorMsg };
+                        } else if (content.startsWith('[Error reading file:') || content === '[Binary or non-text file]') {
+                            const errorMsg = `Cannot read text content of ${fileName} from ${currentZipName}. ${content}`;
+                            this.agentCore.emit('agentNotification', { message: errorMsg, type: 'warning' });
+                            operationResult = { error: errorMsg };
+                        } else {
+                            operationResult = { fileName: fileName, content: content };
+                            // ***** ADD THIS LINE *****
+                            this.agentCore.emit('agentNotification', { message: `Successfully read file ${fileName}. Length: ${content.length}.`, type: 'success' });
+                        }
+                        break;
+                    case 'analyze_content':
+                        this.agentCore.emit('agentNotification', { message: `Analyzing content of ${currentZipName}...`, type: 'info' });
+                        const textFiles = zipProcessor.listFiles().filter(f => zipProcessor.isTextBased(f.name)).slice(0, 3);
+                        let combinedText = `Analyzing ZIP file: ${currentZipName}. It contains the following text files (first few shown):\n`;
+                        for (const file of textFiles) {
+                            const fileContent = await zipProcessor.getFileContent(file.name);
+                            if (fileContent && !fileContent.startsWith('[Error') && !fileContent.startsWith('[Binary')) {
+                                 combinedText += `--- File: ${file.name} ---\n${fileContent.substring(0, 1000)}\n... (truncated if long) ...\n`;
+                            }
+                        }
+                        combinedText += "\nPlease provide a brief summary of what this ZIP file might contain based on these file snippets.";
+    
+                        const analysisResponse = await this.apiManager.sendRequest({ message: combinedText });
+                        operationResult = {
+                            analysis_summary: analysisResponse.content,
+                            files_checked: textFiles.map(f => f.name)
+                        };
+                        // ***** ADD THIS LINE *****
+                        this.agentCore.emit('agentNotification', { message: `Analysis of ${currentZipName} complete.`, type: 'success' });
+                        break;
+                    default:
+                        throw new Error(`Unknown ZIP operation: ${operation}`);
+                }
+                return { data: operationResult, context: { lastZipOperation: operation } };
+            } catch (error) {
+                this.logger.error(`Error in executeZipOperation (${operation}):`, error);
+                // ***** MODIFY THIS LINE for better notification *****
+                const errorMsg = `ZIP Operation '${operation}' failed: ${error.message}`;
+                this.agentCore.emit('agentNotification', { message: errorMsg, type: 'error' });
+                return { data: { error: errorMsg } };
+            }
+        }
+
+
+        // In CommandProcessor
+        async executeWebOperation(step, context) {
+            // This method relies on AgentCore to have the actual fetch-proxy calling logic
+            if (!this.agentCore) {
+                return { data: { error: "AgentCore reference not available for web operation." } };
+            }
+
+            const { operation, url } = step.parameters;
+            let operationResult;
+
+            try {
+                switch (operation) {
+                    case 'fetch_content':
+                        this.agentCore.emit('agentNotification', { message: `Fetching content from: ${url}`, type: 'info' });
+                        // The actual HTTP call will be made by AgentCore's method
+                        const fetchResult = await this.agentCore.fetchWebsiteContent(url); // Assume this method exists in AgentCore
+
+                        if (fetchResult.success) {
+                            operationResult = {
+                                url: url,
+                                textContent: fetchResult.textContent, // Key for summarization step
+                                // htmlContent: fetchResult.htmlContent, // Optionally store raw HTML
+                                message: `Successfully fetched content from ${url}. Length: ${fetchResult.textContent?.length || 0}`
+                            };
+                            // ***** ADD THIS LINE *****
+                            this.agentCore.emit('agentNotification', { message: `Content fetched from ${url}. Length: ${fetchResult.textContent?.length || 0}`, type: 'success' });
+                            // Update context for potential summarization step
+                            return {
+                                data: operationResult,
+                                context: { last_web_url: url, last_web_content: fetchResult.textContent }
+                            };
+                        } else {
+                            throw new Error(fetchResult.error || 'Failed to fetch website content.');
+                        }
+                    default:
+                        throw new Error(`Unknown web operation: ${operation}`);
+                }
+            } catch (error) {
+                this.logger.error(`Error in executeWebOperation (${operation}) for ${url}:`, error);
+                this.agentCore.emit('agentNotification', { message: `Failed to fetch ${url}: ${error.message}`, type: 'error' });
+                return { data: { error: `Web Operation failed: ${error.message}` } };
+            }
+        }
 
         initializeCommandPatterns() {
             this.commandPatterns.set('code_generation', [ /اكتب\s+(.*?)\s+ب(.*)/i, /اصنع\s+(.*?)\s+موقع/i, /create\s+(.*?)\s+website/i, /write\s+(.*?)\s+code/i, /build\s+(.*?)\s+app/i ]);
             this.commandPatterns.set('web_search', [ /ابحث\s+عن\s+(.*)/i, /search\s+for\s+(.*)/i, /find\s+(.*)/i, /lookup\s+(.*)/i ]);
             this.commandPatterns.set('data_analysis', [ /حلل\s+(.*)/i, /analyze\s+(.*)/i, /examine\s+(.*)/i, /study\s+(.*)/i ]);
             this.commandPatterns.set('file_operation', [ /اقرأ\s+ملف\s+(.*)/i, /read\s+file\s+(.*)/i, /create\s+file\s+(.*)/i, /اكتب\s+ملف\s+(.*)/i ]);
+            // Inside initializeCommandPatterns for CommandProcessor
+            this.commandPatterns.set('zip_list_files', [
+                /list files in zip/i, /محتويات ملف zip/i, /ما هي الملفات في zip/i
+            ]);
+            this.commandPatterns.set('zip_read_file', [
+                /read file (.*?) from zip/i, /اقرأ ملف (.*?) من zip/i, /show content of (.*?) in zip/i
+            ]);
+            this.commandPatterns.set('zip_analyze', [
+               /analyze zip content/i, /حلل محتوى zip/i, /summarize zip/i, /لخص ملف zip/i
+            ]);
+            // Inside initializeCommandPatterns for CommandProcessor
+            this.commandPatterns.set('web_fetch_content', [
+                /fetch content of (https?:\/\/[^\s]+)/i, /جلب محتوى (https?:\/\/[^\s]+)/i,
+                /go to (https?:\/\/[^\s]+) and summarize/i, /اذهب الى (https?:\/\/[^\s]+) ولخص/i,
+                /summarize website (https?:\/\/[^\s]+)/i, /لخص موقع (https?:\/\/[^\s]+)/i
+            ]);
             this.logger.info('📋 Command patterns initialized');
         }
 
@@ -457,6 +623,75 @@
                     { id: 'analyze_results', type: 'text_processing', description: 'تحليل نتائج البحث', parameters: { operation: 'summarize_search_results' }, critical: false }
                 ]
             });
+            // Inside initializeExecutionStrategies for CommandProcessor
+            this.executionStrategies.set('zip_list_files', {
+                generateSteps: async (analysis) => {
+                    return [{
+                        id: 'list_zip_files_step',
+                        type: 'zip_operation',
+                        description: 'سرد الملفات من الـ ZIP المحمل',
+                        parameters: { operation: 'list_files' },
+                        critical: true
+                    }];
+                }
+            });
+            this.executionStrategies.set('zip_read_file', {
+                generateSteps: async (analysis) => {
+                    // Extract file name from parameters (assuming it's captured by regex)
+                    const fileName = analysis.parameters?.fileName || analysis.originalInput.match(/read file (.*?) from zip/i)?.[1] || analysis.originalInput.match(/اقرأ ملف (.*?) من zip/i)?.[1];
+                    if (!fileName) {
+                        return [{ id: 'error_step', type: 'error', description: 'اسم الملف غير محدد لقراءته من ZIP.' }];
+                    }
+                    return [{
+                        id: 'read_zip_file_step',
+                        type: 'zip_operation',
+                        description: `قراءة محتوى الملف ${fileName} من الـ ZIP`,
+                        parameters: { operation: 'read_file', fileName: fileName.trim() },
+                        critical: true
+                    }];
+                }
+            });
+             this.executionStrategies.set('zip_analyze', {
+                generateSteps: async (analysis) => {
+                    return [{
+                        id: 'analyze_zip_content_step',
+                        type: 'zip_operation',
+                        description: 'تحليل محتوى ملف ZIP',
+                        parameters: { operation: 'analyze_content' },
+                        critical: true
+                    }];
+                }
+            });
+            // Inside initializeExecutionStrategies for CommandProcessor
+            this.executionStrategies.set('web_fetch_content', {
+                generateSteps: async (analysis) => {
+                    const urlMatch = analysis.originalInput.match(/https?:\/\/[^\s]+/);
+                    if (!urlMatch || !urlMatch[0]) {
+                        return [{ id: 'error_step', type: 'error', description: 'الرابط غير صالح أو غير موجود في الأمر.' }];
+                    }
+                    const url = urlMatch[0];
+                    const steps = [
+                        {
+                            id: 'fetch_web_content_step',
+                            type: 'web_operation',
+                            description: `جلب المحتوى من الرابط: ${url}`,
+                            parameters: { operation: 'fetch_content', url: url },
+                            critical: true
+                        }
+                    ];
+                    // Add summarization step if implied by command
+                    if (analysis.originalInput.includes('summarize') || analysis.originalInput.includes('لخص')) {
+                        steps.push({
+                            id: 'summarize_web_content_step',
+                            type: 'text_processing', // Re-use existing text_processing for summarization via LLM
+                            description: 'تلخيص محتوى الصفحة المسترجعة',
+                            parameters: { operation: 'summarize', sourceTextContextKey: 'last_web_content' }, // Expects content in context
+                            critical: false
+                        });
+                    }
+                    return steps;
+                }
+            });
             this.logger.info('⚙️ Execution strategies initialized');
         }
 
@@ -464,7 +699,7 @@
         detectLanguage(text) { return /[؀-ۿ]/.test(text) ? 'arabic' : 'english'; }
 
         async extractIntent(text) {
-            const intents = { create: ['اكتب', 'اصنع', 'انشئ', 'create', 'make', 'build', 'write'], search: ['ابحث', 'ابحث عن', 'search', 'find', 'lookup'], analyze: ['حلل', 'analyze', 'examine', 'study'], read: ['اقرأ', 'read', 'show', 'display'], help: ['مساعدة', 'help', 'assist'] };
+            const intents = { create: ['اكتب', 'اصنع', 'انشئ', 'create', 'make', 'build', 'write'], search: ['ابحث', 'ابحث عن', 'search', 'find', 'lookup'], analyze: ['حلل', 'analyze', 'examine', 'study'], read: ['اقرأ', 'read', 'show', 'display'], help: ['مساعدة', 'help', 'assist'], list: ['list', 'اعرض', 'سرد'] }; // Added 'list'
             for (const [intent, keywords] of Object.entries(intents)) { if (keywords.some(keyword => text.includes(keyword))) return intent; }
             return 'general';
         }
@@ -475,14 +710,30 @@
             for (const lang of languages) { if (text.includes(lang)) { entities.language = lang; break; } }
             const fileTypes = ['موقع', 'website', 'app', 'تطبيق', 'صفحة', 'page'];
             for (const type of fileTypes) { if (text.includes(type)) { entities.projectType = type; break; } }
+            // Extract filename for zip operations
+            const zipFileMatch = text.match(/(?:file|ملف)\s+(.*?)\s+(?:from zip|من zip)/i);
+            if (zipFileMatch && zipFileMatch[1]) {
+                entities.fileName = zipFileMatch[1].trim();
+            }
             return entities;
         }
 
-        determineCommandType(intent, entities) {
+        determineCommandType(intent, entities, text) { // Added text param
             if (intent === 'create' && (entities.language || entities.projectType)) return 'code_generation';
             if (intent === 'search') return 'web_search';
-            if (intent === 'analyze') return 'data_analysis';
-            if (intent === 'read') return 'file_operation';
+            if (intent === 'analyze' && !text.includes('zip')) return 'data_analysis'; // Make sure not to conflict with zip_analyze
+            if (intent === 'read' && !text.includes('zip')) return 'file_operation';
+
+            // Simpler determineCommandType logic for ZIP
+            if (text.includes('list files in zip') || text.includes('محتويات ملف zip') || (intent === 'list' && text.includes('zip'))) return 'zip_list_files';
+            if (((text.includes('read file') || text.includes('اقرأ ملف')) && text.includes('from zip')) || (intent === 'read' && text.includes('zip') && entities.fileName)) return 'zip_read_file';
+            if ((text.includes('analyze zip') || text.includes('حلل محتوى zip')) || (intent === 'analyze' && text.includes('zip'))) return 'zip_analyze';
+
+            // Inside determineCommandType
+            if (text.match(/fetch content of|جلب محتوى|go to|اذهب الى|summarize website|لخص موقع/i) && text.match(/https?:\/\/[^\s]+/i)) {
+                return 'web_fetch_content';
+            }
+
             return 'general_query';
         }
 
@@ -492,6 +743,12 @@
                 case 'code_generation': parameters.description = text; parameters.language = this.extractLanguage(text); parameters.framework = this.extractFramework(text); break;
                 case 'web_search': parameters.query = this.extractSearchQuery(text); parameters.maxResults = 5; break;
                 case 'data_analysis': parameters.dataSource = this.extractDataSource(text); parameters.analysisType = this.extractAnalysisType(text); break;
+                case 'zip_read_file':
+                    const zipFileMatch = text.match(/(?:read file|اقرأ ملف)\s+(.*?)\s+(?:from zip|من zip)/i);
+                    if (zipFileMatch && zipFileMatch[1]) {
+                        parameters.fileName = zipFileMatch[1].trim();
+                    }
+                    break;
             }
             return parameters;
         }
@@ -586,6 +843,10 @@ import React from 'react'; function App() { return (<h1>Hello, React!</h1>); } e
             switch (commandType) {
                 case 'code_generation': const codeResults = results.filter(r => r.result && r.result.code); if (codeResults.length > 0) return { type: 'code', ...codeResults[0].result }; break;
                 case 'web_search': const searchResults = results.filter(r => r.result && r.result.results); if (searchResults.length > 0) return { type: 'search', ...searchResults[0].result }; break;
+                case 'zip_operation': // Added for zip results
+                    const zipResults = results.filter(r => r.result && !r.result.error);
+                    if (zipResults.length > 0) return { type: 'zip_operation', ...zipResults[zipResults.length - 1].result }; // Return last successful zip op result
+                    break;
             }
             return { type: 'general', message: 'تم تنفيذ الأمر بنجاح', details: results };
         }
