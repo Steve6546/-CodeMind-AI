@@ -1,0 +1,77 @@
+/* Placeholder for component-specific styles */
+
+/* Welcome Message Styles */
+.welcome-message .message-content {
+    background-color: var(--dark-bg-tertiary);
+    padding: var(--space-md);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--dark-border);
+}
+.welcome-message h3 {
+    color: var(--primary-300);
+    margin-bottom: var(--space-sm);
+}
+.welcome-message ul {
+    list-style-position: inside;
+    padding-right: var(--space-md); /* For RTL */
+    margin-bottom: var(--space-sm);
+}
+.welcome-message li {
+    margin-bottom: var(--space-xs);
+}
+
+/* Chat Messages */
+.message {
+    display: flex;
+    gap: var(--space-sm);
+    align-items: flex-start;
+}
+.message-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background-color: var(--dark-bg-tertiary);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: var(--font-size-lg);
+    flex-shrink: 0;
+}
+.agent-message .message-avatar {
+    color: var(--primary-400);
+}
+.user-message .message-avatar {
+    color: var(--accent-info);
+}
+.message-content {
+    background-color: var(--dark-bg-tertiary);
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--radius-lg);
+    max-width: 80%;
+}
+.user-message .message-content {
+    background-color: var(--primary-700);
+    color: var(--light-bg-primary);
+}
+.message-text p:last-child {
+    margin-bottom: 0;
+}
+
+/* Terminal Lines */
+.terminal-line {
+    margin-bottom: var(--space-xs);
+    word-break: break-all; /* Prevent overflow */
+}
+.terminal-prompt {
+    color: var(--primary-400);
+    margin-left: var(--space-xs); /* RTL */
+}
+.terminal-text {
+    color: var(--dark-text-primary);
+}
+.terminal-error {
+    color: var(--accent-error);
+}
+.terminal-success {
+    color: var(--accent-success);
+}
